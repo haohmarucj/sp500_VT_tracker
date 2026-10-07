@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>动态定投助手</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#f6f7f9;--card:#fff;--tx:#1b1f24;--mu:#6b7280;--bd:#e2e5ea;--ac:#2563eb;--gd:#16a34a;--rd:#dc2626}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111418;--card:#1a1f26;--tx:#e8eaed;--mu:#9aa3af;--bd:#2c333d;--ac:#60a5fa;--gd:#4ade80;--rd:#f87171}}
+:root[data-theme="dark"]{--bg:#111418;--card:#1a1f26;--tx:#e8eaed;--mu:#9aa3af;--bd:#2c333d;--ac:#60a5fa;--gd:#4ade80;--rd:#f87171}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+main{max-width:860px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:4px 0 12px}h2{font-size:15px;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+label{display:block;font-size:12px;color:var(--mu);margin-top:8px}
+input{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);font-size:15px}
+.big{font-size:26px;font-weight:700}.mu{color:var(--mu);font-size:13px}
+.row{display:flex;justify-content:space-between;gap:8px;padding:3px 0}
+button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:8px 14px;font-size:14px;cursor:pointer;margin-right:6px}
+button.g{background:transparent;color:var(--mu);border:1px solid var(--bd)}
+.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{padding:5px 8px;border-bottom:1px solid var(--bd);text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}
+.tier{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+</style>
+</head>
+<body>
+<main>
+<h1>📈 动态定投助手</h1>
+<p class="mu" id="status">正在读取最新行情…</p><p class="mu">数据每个工作日自动更新,也可手动改。输入标普500与全球股票基金的当前价格、历史高点和200日均线,按回撤与均线偏离自动调整本期定投金额。数据保存在本浏览器。</p>
+
+<div class="card"><h2>基础设置</h2>
+<div class="grid">
+<div><label>每月基础定投总额</label><input id="base" type="number" value="1000"></div>
+<div><label>标普500 占比 %(其余为全球基金)</label><input id="split" type="number" value="50"></div>
+<div><label>倍数上限</label><input id="cap" type="number" step="0.1" value="3"></div>
+</div></div>
+
+<div class="grid">
+<div class="card"><h2>标普500(如 SPY / VOO)</h2>
+<label>当前价格</label><input id="p0" type="number" step="any">
+<label>历史高点</label><input id="h0" type="number" step="any">
+<label>200日均线</label><input id="m0" type="number" step="any">
+<div id="o0" style="margin-top:10px"></div></div>
+<div class="card"><h2>全球基金(如 VT / VWRA)</h2>
+<label>当前价格</label><input id="p1" type="number" step="any">
+<label>历史高点</label><input id="h1" type="number" step="any">
+<label>200日均线</label><input id="m1" type="number" step="any">
+<div id="o1" style="margin-top:10px"></div></div>
+</div>
+
+<div class="card"><h2>本期建议</h2>
+<div class="big" id="total">—</div>
+<div class="mu" id="hint">填入数据后自动计算</div>
+<div style="margin-top:10px"><button id="rec">记录本期投入</button><button class="g" id="clr">清空记录</button></div></div>
+
+<div class="card"><h2>档位规则(可编辑:回撤 ≥ X% → 倍数)</h2>
+<div class="tier" id="tiers"></div>
+<p class="mu">均线修正:价格高于200日均线10%以上 ×0.8;低于均线5%以上 ×1.2。最终倍数不超过上限。</p></div>
+
+<div class="card"><h2>投入记录</h2><div class="scroll"><table id="log"></table></div>
+<p class="mu" id="sum"></p></div>
+<p class="mu">仅为规则化工具,不构成投资建议。</p>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const DEF={base:1000,split:50,cap:3,tiers:[[0,0.8],[5,1],[10,1.5],[20,2],[30,3]],f:[{},{}],log:[]};
+let S=JSON.parse(JSON.stringify(DEF));
+try{const r=localStorage.getItem('dca');if(r)S=Object.assign(S,JSON.parse(r))}catch(e){}
+const save=()=>{try{localStorage.setItem('dca',JSON.stringify(S))}catch(e){}};
+['base','split','cap'].forEach(k=>$(k).value=S[k]);
+[0,1].forEach(i=>['p','h','m'].forEach(k=>{$(k+i).value=(S.f[i]||{})[k]??''}));
+function tierMul(dd){let m=S.tiers[0][1];S.tiers.forEach(([t,x])=>{if(dd>=t)m=x});return m}
+function calc(){
+ ['base','split','cap'].forEach(k=>S[k]=parseFloat($(k).value)||0);
+ const w=[S.split/100,1-S.split/100];let tot=0,ok=false;S.out=[];
+ [0,1].forEach(i=>{
+  const p=parseFloat($('p'+i).value),h=parseFloat($('h'+i).value),m=parseFloat($('m'+i).value);
+  S.f[i]={p:$('p'+i).value,h:$('h'+i).value,m:$('m'+i).value};
+  const o=$('o'+i);
+  if(!p||!h){o.innerHTML='<span class="mu">请填入价格与历史高点</span>';S.out[i]=0;return}
+  ok=true;const dd=Math.max(0,(h-p)/h*100);let mul=tierMul(dd),dev=null;
+  if(m){dev=(p-m)/m*100;if(dev>10)mul*=0.8;else if(dev<-5)mul*=1.2}
+  mul=Math.min(mul,S.cap);const amt=S.base*w[i]*mul;tot+=amt;S.out[i]=amt;
+  o.innerHTML=`<div class="row"><span>距高点回撤</span><b style="color:${dd>10?'var(--rd)':'var(--tx)'}">${dd.toFixed(1)}%</b></div>`+
+  `<div class="row"><span>相对200日线</span><b>${dev===null?'—':(dev>0?'+':'')+dev.toFixed(1)+'%'}</b></div>`+
+  `<div class="row"><span>定投倍数</span><b>${mul.toFixed(2)}×</b></div>`+
+  `<div class="row"><span>建议金额</span><b style="color:var(--gd)">${amt.toFixed(0)}</b></div>`;
+ });
+ S.tot=tot;$('total').textContent=ok?tot.toFixed(0):'—';
+ $('hint').textContent=ok?`基础额 ${S.base} → 实际 ${(S.base?tot/S.base:0).toFixed(2)}×`:'填入数据后自动计算';
+ save();
+}
+function drawTiers(){
+ $('tiers').innerHTML='';
+ S.tiers.forEach((t,i)=>{
+  $('tiers').insertAdjacentHTML('beforeend',`<div><label>回撤 ≥ (%)</label><input type="number" data-i="${i}" data-j="0" value="${t[0]}" ${i==0?'disabled':''}></div><div><label>倍数</label><input type="number" step="0.1" data-i="${i}" data-j="1" value="${t[1]}"></div>`);
+ });
+ $('tiers').querySelectorAll('input').forEach(e=>e.oninput=()=>{S.tiers[e.dataset.i][e.dataset.j]=parseFloat(e.value)||0;calc()});
+}
+function drawLog(){
+ let h='<tr><th>日期</th><th>标普500</th><th>全球</th><th>合计</th></tr>';
+ S.log.slice().reverse().forEach(r=>h+=`<tr><td>${r.d}</td><td>${r.a}</td><td>${r.b}</td><td>${r.t}</td></tr>`);
+ $('log').innerHTML=S.log.length?h:'<tr><td class="mu">暂无记录</td></tr>';
+ const sum=S.log.reduce((a,r)=>a+r.t,0);
+ $('sum').textContent=S.log.length?`累计投入 ${sum} ,共 ${S.log.length} 期,平均每期 ${(sum/S.log.length).toFixed(0)}`:'';
+}
+$('rec').onclick=()=>{calc();if(!S.tot)return;
+ S.log.push({d:new Date().toISOString().slice(0,10),a:Math.round(S.out[0]||0),b:Math.round(S.out[1]||0),t:Math.round(S.tot)});save();drawLog()};
+$('clr').onclick=()=>{if(confirm('确定清空所有投入记录?')){S.log=[];save();drawLog()}};
+document.querySelectorAll('input:not([data-i])').forEach(e=>e.oninput=calc);
+fetch('data.json',{cache:'no-store'}).then(r=>r.json()).then(d=>{
+ d.funds.slice(0,2).forEach((f,i)=>{$('p'+i).value=f.price;$('h'+i).value=f.ath;$('m'+i).value=f.ma200});
+ $('status').textContent='行情更新于 '+d.updated+'(收盘日 '+d.funds[0].date+')';calc();
+}).catch(()=>{$('status').textContent='未读到 data.json,请手动输入'});
+drawTiers();drawLog();calc();
+</script>
+</body>
+</html>
