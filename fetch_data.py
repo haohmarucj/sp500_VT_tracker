@@ -3,7 +3,7 @@ import yfinance as yf
 
 # 在这里改成你实际关注的标的(指数或ETF代码)
 FUNDS = [
-    {"label": "标普500", "ticker": "^GSPC"},  # 也可改成 VOO / SPY
+    {"label": "标普500", "ticker": "VOO"},  # 也可改成 VOO / SPY
     {"label": "全球基金", "ticker": "VT"},      # 也可改成 VWRA.L 等
 ]
 
