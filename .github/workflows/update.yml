@@ -1,7 +1,7 @@
 name: update-data
 on:
   schedule:
-    - cron: "30 22 * * 1-5"   # 工作日 UTC 22:30(美股收盘后)
+    - cron: "37 22 * * 1-5"   # 工作日 UTC 22:30(美股收盘后)
   workflow_dispatch: {}
 permissions:
   contents: write
